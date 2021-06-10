@@ -1,0 +1,167 @@
+---
+title: "Autocorrelation and Normality Tests"
+subtitle: "Empirical Distribution of S&P500 Returns"
+author: "Shirley He"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+
+# Notebook Contents   
+  - [Clean up, Load Libraries](#load_libraries)  
+  - [ADF on &$P500 Price](#adf_prices)   
+  - [ADF on S&P500 Returns](#adf_returns)  
+  - [Histogram, QQ Plot, Kernel Histogram](#hist_qqplot_kernel)  
+  - [Descriptive Statistics and JB Test](#descriptive_stats_jb)   
+  - [ACF, PACF, and Ljung-Box Test](#acf_pacf)   
+  - [Finish Up with Virtual Environment](#finish)
+
+# Clean up and load libraries{#load_libraries}
+```{r}
+rm( list=ls() )
+library(tseries)
+library(moments)
+```
+
+# ADF Test on Price Series{#adf_prices}
+The p-value from the Augmented Dickey-Fuller test is 0.9249  
+The null of ADF test is that the data are non-stationary.   
+We want to reject the null hypothesis for this test, so we want a p-value of 0.05 or smaller.  
+
+We hope that if we take log differences of this, the p-value will go down
+
+ 
+
+```{r}
+D <- read.table('../data/sp500.csv',header=TRUE,sep=',')
+colnames(D)
+#reverse adjusted close column. take it as sp500
+sp500 <- rev(D$adjusted_close)
+
+adf.test(sp500) #p-value = 0.9249
+
+```
+
+
+
+
+
+# ADF Test on Returns Series{#adf_returns}
+The p-value from the Augmented Dickey-Fuller test is 0.01  
+
+
+```{r}
+D_returns <- read.table('../data/sp500-returns.csv');
+
+#2 columns: dates and returns
+dates <- as.Date(as.character(D_returns[,1]),'%Y-%m-%d')
+ret   <- D_returns[,2]
+
+adf.test(ret)
+```
+
+ 
+ 
+# Histogram, QQ Plot and Kernel Histogram of Returns{#hist_qqplot_kernel}
+
+### Histogram
+When we have time series data, the first thing to do is plot a histogram.  
+We see that the data is clearly not gaussian.  
+
+Gaussian has some observations at 5, -5, 10, -10 so the tails are not exponentially decaying like in normal.  
+If this were gaussian, the likelihood of seeing 5 should be almost never.  
+Even if we play with the mean and variance (increase variance to flatten it), we could still not fit a gaussian in here. 
+
+
+```{r}
+hist(ret,50,freq=FALSE,col='tomato',border='darkred',main='') #main=title
+```
+
+## QQ Plot
+Ifthe data is Gaussian, we know exactly the numbers of the quantiles   
+Here we compute the sample quantiles from our data and compare it to gaussian quantiles   
+```{r}
+qqnorm(ret,col='tomato',main='')
+qqline(ret,lwd=2,lty=3)
+```
+
+## Kernel Histogram
+We need an empirical estimate of the distribution.  
+
+Notes: 
+  - 'density' is the kernel function in R   
+  - 'polygon' function needs a start and end to fill, but passing kernel to it will fill what's in between the area under the shape 
+
+```{r}
+kernel <- density(ret) 
+kernel
+
+#kernel object has a plot method. so when you call plot on it, it will plot something already for you. 
+plot(kernel , main='' , yaxs='i' ) 
+polygon(kernel , col="tomato" , border='darkred' ) #we fill it using polygon. 
+
+lines( seq(-10,10,0.1) , dnorm( seq(-10,10,0.1) , mean(ret) , sd(ret) ) , col='darkblue' ,lwd=4) #compare to density of normal with mean 10 (we know how that normal should look)
+
+```
+
+ 
+# Descriptive Stats and JB Test{#descriptive_stats_jb}
+Create vector of mean returns, annualised volatility, skewness and kurtosis
+
+```{r}
+descr <- as.matrix( c( mean(ret) , sqrt(252)*sd(ret) , skewness(ret) , kurtosis(ret) ) ) 
+dimnames(descr)[[1]] <- list('mean','ann vol','skew','kurt')
+round(descr, 3)
+```
+
+## JB Test
+The JB Test compares the density to a standard normal.   
+The p-value from this test is < 2.2e-16 (very small) which tells us that the data is not normal.   
+
+Kurtosis is almost 3x the standard normal, which is 3. 
+
+```{r}
+jarque.test(ret)
+
+```
+
+# ACF, PACF, and Ljung-Box Test{#acf_pacf}
+## ACF 
+Auto-correlation function finds correlations between the present and lags
+The ACF graph shows that there is not much autocorrelation
+
+```{r}
+
+ret.acf <- acf(ret , ylim=c(-0.1,1) , lwd=5 , xlim=c(0,25) , col='darkorange2')
+round(head(ret.acf$acf, 5), 3) #going into ret.acf function, tell it what to look for.
+ret.acf
+
+```
+
+## PACF
+Partial auto-correlation function finds correlation of the residuals which can remain after removing the effects which are already explained by other lags. 
+
+```{r}
+#compared to ACF, here we partial out all past influences up to k (??)
+ret.pacf <- pacf(ret, ylim=c(-0.1,1) , lwd=5 , xlim=c(0,25) , col='darkorange2')
+ret.pacf
+```
+
+## Ljung-Box Test
+A significant p-value in this test rejects the null hypothesis that the time series isn’t autocorrelated  
+
+```{r}
+Box.test( ret , lag=22 , type="Ljung-Box" )
+```
+
+# Finish Up with Virtual Environment renv{#finish}
+Save state of project library to `renv.lock`
+```{r}
+renv::snapshot()
+```
