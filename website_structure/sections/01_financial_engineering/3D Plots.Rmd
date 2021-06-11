@@ -1,0 +1,595 @@
+---
+title: "3D Plots for Option Greeks"
+subtitle: "Visualising the change in option dynamics over time, strike and spot"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+# **Setup Required Libraries**
+
+```{r message=FALSE,warning=FALSE}
+library(plotly)
+```
+
+# **Option Price and Implied Volatility**
+
+We must set up functions for the price and implied volatility as parameters used to calculate and generate outputs for our 3D plots.
+
+
+```{r}
+BSprice<-function(pc, S, k, vol, d, r, t)
+{
+
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  
+  BSprice = pc * exp(-d * t) * S * 
+    pnorm(pc * d1) - pc * k * exp(-r * t) * pnorm(pc * d2)
+  return(BSprice)
+}
+
+
+BSvol<-function(pc, S, k, price, d, r, t, start = 0.2)
+{
+  
+  voli = start
+  pricei = BSprice(pc, S, k, voli, d, r, t)
+  vegai = BSvega(pc, S, k, voli, d, r, t)
+  while(abs(price - pricei) > 0.000001) 
+  {
+    voli<-voli + (price - pricei) / vegai
+    pricei<-BSprice(pc, S, k, voli, d, r, t)
+    vegai<-BSvega(pc, S, k, voli, d, r, t)
+  }
+  
+  BSvol = voli
+  return(BSvol)
+}
+```
+
+# **First-Order Greeks**
+
+## Delta
+
+Delta is the first derivative with respect to the underlying.
+
+$$
+\Delta = \frac{dV}{dS} = e^{-dt} \Phi(d_1)
+$$
+
+```{r}
+
+BSdelta<-function(pc, S, k, vol, d, r, t)
+{
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  
+  if (pc == 1) {BSdelta = exp(-d * t) * pnorm(d1)} else 
+  {BSdelta = exp(-d * t) * (pnorm(d1) - 1)}
+  return(BSdelta)
+}
+```
+
+## Gamma
+
+The second derivative of the option value with respect to the underlying, Gamma, measures convexity in option value.
+
+$$
+\Gamma = \frac{d\Delta}{dS} = e^{-dt} \Phi(d_1)
+$$
+
+
+```{r}
+BSgamma<-function(pc, S, k, vol, d, r, t)
+{
+  
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  
+  BSgamma = exp(-d * t) * exp((-d1 ^ 2) / 2) / (sqrt(2 * pi) * S * vol * sqrt(t))
+  
+  return(BSgamma)}
+```
+
+## Theta
+
+Theta is the derivative with respect to time-to-maturity. 
+
+$$
+\theta = \frac{dV}{d\tau} = -re^{-d\tau}K\Phi(d_2)-\frac{S\sigma}{2\sqrt{\tau}}\phi(d_1)
+$$
+$$
+\text{where } \phi(d_1) = \frac{1}{\sqrt{2\pi}}e^{-\frac{1}{2}d_1^2}
+$$
+
+
+```{r}
+BStheta<-function(pc, S, k, vol, d, r, t) 
+{
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  
+  BStheta = -exp(-d * t) * exp((-d1 ^ 2) / 2) * S * vol / 
+    (sqrt(2 * pi) * 2 * sqrt(t)) + pc * d * S * exp(-d * t) * pnorm(pc * d1) - pc * r * k * exp(-r * t) * pnorm(pc * d2)
+  return(BStheta)
+}
+```
+
+## Vega
+
+Vega is the derivative with respect to volatility. 
+
+$$
+\nu = \frac{dV}{d\sigma} = S\phi(d_1)\sqrt{\tau}
+$$
+
+```{r}
+BSvega<-function(pc, S, k, vol, d, r, t)
+{
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  
+  BSvega = exp(-d * t) * S * sqrt(t) * exp((-d1 ^ 2) / 2) / (sqrt(2 * pi))
+  return(BSvega)
+}
+
+```
+
+## Rho
+
+Rho represents the derivative with respect to the risk-free interest rate.
+
+$$
+\rho = \frac{dV}{dr}\pm KTe^{-rT}\Phi(\pm d_2)
+$$
+
+```{r}
+BSrho<-function(pc, S, k, vol, d, r, t)
+{
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  
+  BSrho = pc * k * t * exp(-r * t) * pnorm(pc * d2)
+  return(BSrho)
+}
+```
+
+# **Higher-Order Option Greeks**
+
+## Charm
+
+$$
+Charm = -\frac{d^2V}{dSd\tau} = -\phi(d_1)\frac{2r\sqrt{\tau}-\sigma d_2}{2\sigma\tau}
+$$
+
+```{r}
+BScharm <-function(pc, S, k, vol, d, r, t) 
+{
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  
+  if (pc == 1) {
+    BScharm = -1*(-(1/(sqrt(2*pi)))*exp(-d1^2/2)*(2*r*sqrt(t)-vol*d2)/(2*vol*t))} else 
+      {BScharm = -(1/(sqrt(2*pi)))*exp(-d1^2/2)*(2*r*sqrt(t)-vol*d2)/(2*vol*t)}
+  
+  return(BScharm)
+}
+```
+
+## Vanna
+
+$$
+Vanna = \frac{d^2V}{d\sigma dS} = \sqrt{\tau} \phi(d_1) [1-d_1]
+$$
+
+
+```{r}
+BSvanna<-function(pc, S, k, vol, d, r, t){ 
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSvanna2 = -BSgamma(pc, S, k, vol, d, r, t) * (sqrt(t) * S) * d2
+  return(BSvanna2)
+}
+```
+
+
+## VegaVanna
+
+$$
+VegaVanna = \frac{d^3V}{d\sigma^2 dS} 
+$$
+
+```{r}
+BSvegavanna<-function(pc, S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSvegavanna2 = BSvanna(pc,S,k,vol,d,r,t) * (1 / vol) * (d1 * d2 - d1 / d2 - 1)
+  return(BSvegavanna2)
+}
+```
+
+## Veta
+
+$$
+Veta = \frac{d^2V}{d\sigma d\tau} 
+$$
+
+```{r}
+BSveta<-function(S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSveta = -S * exp(-d * t) * exp((-d1 ^ 2) / 2) / (sqrt(2 * pi)) * sqrt(t) * (d + (((r-d) * d1) / (vol * sqrt(t))) - ((1 + d1 * d2) / 2*t))
+  return(BSveta)
+}
+```
+
+## Volga
+
+$$
+Volga = \frac{d^2V}{d\sigma^2 } 
+$$
+
+```{r}
+BSvolga<-function(S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSvolga = exp(-d * t) * sqrt(t) * exp((-d1 ^ 2) / 2) / (sqrt(2 * pi)) * ((d1 * d2) / vol)
+  return(BSvolga)
+}
+```
+
+## Speed
+
+$$
+Speed = \frac{d^3V}{dS^3} 
+$$
+
+```{r}
+BSspeed<-function(pc, S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSspeed = (-BSgamma(pc, S, k, vol, d, r, t) / S) * ((d1 / (vol * sqrt(t))) + 1)
+  return(BSspeed)
+}
+```
+
+## Zomma
+
+$$
+Zomma = \frac{d^3V}{d\sigma dS^2} 
+$$
+
+```{r}
+BSzomma<-function(pc, S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSzomma = BSgamma(pc, S, k, vol, d, r, t) * ((d1 * d2 - 1) / vol)
+  return(BSzomma)
+}
+```
+
+## Ultima
+
+$$
+Ultima = \frac{d^2S}{d\sigma^3 } 
+$$
+
+```{r}
+BSultima<-function(pc, S, k, vol, d, r, t){
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  BSultima = (-BSvega(pc, S, k, vol, d, r, t) / vol^2) * (((d1 * d2) * (1 - d1 * d2)) + d1^2 + d2^2)
+  return(BSultima)
+}
+```
+
+# **3D Plots**
+
+## Parameters
+
+We outline some base parameters for the options which we want to examine. We will start with simple ATM call options, and set up our x, y and z axes which are the time to maturity, strikes (or spot), and Greeks.
+
+```{r}
+pc = 1
+S = 100;
+T = 5;
+r = .01;
+vol = .15;
+K = 100
+div = 0
+
+ttm = seq(0.1, T, .25)
+strikes = seq(0,2*S,1)
+s0 = seq(0,2*K,.5)
+```
+
+## Delta
+
+We can generate plots as either a function of the strike:
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSdelta(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "delta"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+Or as a function of the spot:
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(S) BSdelta(pc,S,K,vol,div,r,ttm), s0))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "spot"),
+                      zaxis = list(title = "delta"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+We can also save and store the outputted plots:
+
+```{r}
+# To save figure
+# plt: the output from plot_ly()
+# orca(plt, file="delta.eps")
+```
+
+
+## Theta
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BStheta(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                  scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "theta"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+plt
+```
+
+
+## Gamma
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSgamma(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "gamma"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Vega
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSvega(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "vega"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Vanna
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSvanna(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "vanna"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Charm
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BScharm(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "charm"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Volga
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSvolga(S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "volga"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## VegaVanna
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSvegavanna(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "vegavanna"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Veta
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSveta(S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "veta"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Ultima
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSultima(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "ultima"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+## Speed
+
+```{r}
+nrow <- length(ttm)
+ncol <- length(strikes)
+to_plot <- list(x = matrix(rep(ttm, ncol), nrow=nrow, ncol=ncol, byrow=FALSE),
+                y = matrix(rep(strikes, nrow), nrow=nrow, ncol=ncol, byrow=TRUE),
+                z = mapply(function(K) BSspeed(pc,S,K,vol,div,r,ttm), strikes))
+
+plt<-plot_ly(x = to_plot$x, y = to_plot$y, z = to_plot$z) %>% 
+  layout(margin = list(l=0, r=0, t=0, b=0), 
+                 scene = list(xaxis = list(title = "time to maturity"),
+                      yaxis = list(title = "strike"),
+                      zaxis = list(title = "speed"),
+                      camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25)),
+                      aspectratio = list(x = 1, y = 1, z = 1))) %>%
+  add_surface(colorscale = list(seq(0,1,length.out=7),
+                                c("#18389B","#02B1E8","#02B283","#FEBB08","#F93616","#F7103C","#CC0B8C")),
+              showscale = FALSE)
+
+plt
+```
+
+

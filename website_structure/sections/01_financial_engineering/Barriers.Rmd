@@ -1,0 +1,238 @@
+---
+title: "**Simulating and Pricing Barrier Options**"
+subtitle: "Comparing Monte Carlo and Black-Scholes Valuation of Down and Out Puts"
+author: "Gary He"
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+  
+---
+
+# Brownian motion with bounds
+
+Brownian motion is often used to model stock prices as a stochastic process. Often, in quantitative finance and scientific fields such as Biology and Physics, whilst Brownian motion is a useful model in and of itself for the random movement of particles, it is useful to be able to implement boundaries for a particular path. For example, the narrow escape problem in Biology describes a situation in which a Brownian particle is confined to a bounded domain, such as a cell.
+
+In derivatives markets, barriers and the bounding of a Brownian motion are important for pricing **barrier options**. These, and variations of them, serve important roles in option and structured product markets. For example, barrier options often allow access to a certain payoff, at a cheaper price due to the possibility of the option being 'knocked out' and becoming worthless should the stock price breach a pre-defined 'barrier'.
+
+## Simulating a bounded 1-dimensional Brownian motion
+
+
+To simulate and price barrier options, we first look at what a bounded Brownian motion looks like. We do this by simply plotting a standard Brownian against an upper and lower boundary. This is easy to accomplish in R, due to the ease of generating random, iid normal variates:
+
+```{r error=TRUE, echo=FALSE}
+N = 1000;
+ub = 10; lb = -10;
+xdis = rnorm(N, 0 ,1)
+xdis = c(0,xdis);
+xdis1 = rep(1,N)
+xdis1 = c(1,xdis1);
+xdis1[1] = xdis[1];
+for(i in 2:N){
+  if(xdis1[i] + xdis[i+1] >= ub){
+    xdis1[i+1] = ub;
+    } else if(xdis1[i] + xdis[i+1] <= lb){
+        xdis[i+1] = lb;
+    } else{
+        xdis1[i+1] = xdis1[i] +xdis[i+1];
+      }}
+plot(xdis1, type="l",main="Brownian Motion with Barrier in 1-dim", xlab="Steps",ylab="Realisation")
+
+
+
+```
+
+
+
+## Simulating a bounded stock price with geometric Brownian motion
+
+We now look to apply this to a standard geometric Brownian motion on which a stock price can be modelled, with drift and diffusion. This takes the form:
+
+$$
+dS_t = \mu S_t dt + \sigma S_t dW_t
+$$
+
+We create a simple function to demonstrate how the stock price looks if confined to an upper and lower bound. We define the following parameters:
+
+```{r}
+#pc = 0 #put/call indicator, put is 0 and call is 1
+#S = 100 #initial stock price
+#T = 1 #total time period observed, frequency is in years
+#N = 1000 #total steps
+#h = 1/1000 #step size, defined as T/N
+#mu = 0 #drift or expected return
+#sigma = 0.4 #diffusion or volatility
+#ub = 120 #upper bound
+#lb = 80 #lower bound
+```
+
+
+```{r}
+gbmbarrierplot<-function(S,T,N, mu,sigma,ub,lb)
+{
+  h <- 1/N
+  x <<- (mu-sigma^2/2)*h+sigma*sqrt(h)*rnorm(T*N, 0, 1)
+  x <<- S*exp(cumsum(x))
+  x<<- c(S,x)
+  for(i in 2:length(x)) {
+    if(x[i]>=ub) {
+      x[i] = ub;
+    } else if(x[i]<=lb) {
+      x[i] = lb
+    } else{x[i] = x[i]
+    }}
+  plot(x,type="l",main="Stock Price with Geometric Brownian Motion and Barriers",xlab="Time",ylab="Price")
+  abline(h=c(ub,lb),col="red")
+}
+
+gbmbarrierplot(100,1,1000,0,0.4,120,80)
+```
+
+## Obtaining a bounded stock price
+
+
+For the purposes of pricing, we want the asset to become worthless, or revert to a value of 0, in the event that a boundary is crossed. We achieve this using the following function and retrieve the terminal value:
+
+```{r}
+gbmbarrierprice<-function(S,T,N, mu,sigma,ub,lb)
+{
+  h <- 1/N
+  x <<- (mu-sigma^2/2)*h+sigma*sqrt(h)*rnorm(T*N, 0, 1)
+  x <<- S*exp(cumsum(x))
+  x<<- c(S,x)
+  upout = FALSE
+  downout = FALSE
+  for(i in 2:length(x)) {
+    if(x[i]>=ub && upout == FALSE && downout == FALSE) {
+      x[i] = 0;
+      upout = TRUE
+    } else if(x[i]<=lb && upout == FALSE && downout == FALSE) {
+      x[i] = 0
+      downout = TRUE
+    } else if(upout||downout) {x[i] = 0
+    } else{x[i] = x[i]
+    }}
+  return(x[length(x)])
+}
+
+gbmbarrierprice(100,1,1000,0,0.4,120,80)
+```
+
+
+# Pricing a down-and-out barrier option
+
+## Using Monte Carlo valuation
+
+Now we will see if we can generate an approximation of a down-and-out barrier option, using Monte Carlo simulations and the bounded Brownian motion:
+
+```{r}
+mc_downout = function(pc,nsims,S,T,N,r,sigma,L,K) {
+c=c()
+for(i in 1:nsims) {
+  c[i] = gbmbarrierprice(S,T,N,r,sigma,Inf,L)
+}
+d = matrix(t(c)[t(c) != 0])
+
+if(pc == 0) {
+  for(i in 1:length(d)) {
+  d[i] = max(K-d[i],0)
+}
+} else if(pc == 1) {
+  for(i in 1:length(d)) {
+    d[i] = max(d[i]-K,0)
+  }
+}
+
+return(sum(d)/nsims)
+}
+
+mc_downout(0,10000,100,1,1000,0,0.4,90,100)
+```
+
+## Using Black-Scholes valuation
+
+
+To see if this is a reasonable approximation of the down-and-out put price, we compare against the Black-Scholes model.
+It can be shown that a down-and-out put is given by:
+
+$$
+P(S_t,\varphi) = P(S_t, \varphi_L) - (\frac{L}{S_t})^{\frac{2r}{\sigma^2}-1} P (\frac{L^2}{S_t},\varphi_L)
+$$
+
+Where phi represents the option payoff, and the subscript L represents the payoff of a vanilla option bounded by L (but not knocked out if touching the boundary).
+
+This can be expressed as:
+
+$$
+P(S,K,L) = P_BS (S,L) - P_BS (S,L) - \frac{(S-L)(L+1)}{L} CONP_BS (S,L) + \frac{K}{L} [C_BS(S,L) - C_BS (S, \frac{L^2}{K})] + (K-L)
+$$
+
+Where CONP represents a cash or nothing put, and BS represents a vanilla option as priced by Black-Scholes.
+
+Thus we can put together a function for the Black-Scholes priced down-and-out-put without dividends:
+
+```{r}
+
+
+downoutput<-function(S, K, v, r, T, L)
+  # Computes the Black-Scholes price of a down and out barrier option, no dividends
+  #S   Stock price at 0
+  #K   strike
+  #v   volatility
+  #r   riskless rate
+  #T   time to maturity
+  #L   barrier
+  
+{
+  r1 = r - (v^2) / 2;
+  r2 = r + (v^2) / 2;
+  
+  A1 = exp(-r*T) * K * pnorm((log(K/S) - r1*T) / (v*sqrt(T)));
+  A2 = S * pnorm((log(K/S) - r2*T) / (v*sqrt(T)));
+  A3 = exp(-r*T) * K * pnorm((log(L/S) - r1*T) / (v*sqrt(T)));
+  A4 = S * pnorm((log(L/S) - r2*T) / (v*sqrt(T)));
+  A5 = exp(-r*T) * K * pnorm((log(K*S/(L^2)) - r1*T) / (v*sqrt(T)));
+  A6 = (L^2) * pnorm((log(K*S/(L^2)) - r2*T) / (v*sqrt(T))) / S;
+  A7 = exp(-r*T) * K * pnorm((log(S/L) - r1*T) / (v*sqrt(T)));
+  A8 = (L^2) * pnorm((log(S/L) - r2*T) / (v*sqrt(T))) / S;
+  
+  B1 = (L/S)^(2*r / (v^2) - 1);
+  
+  y = A1 - A2 - A3 + A4 - B1 * (A5 - A6 - A7 + A8);
+  return(y)
+}
+
+downoutput(100,100,0.4,0,1,90)
+  
+```
+
+## Assessing the accuracy of Monte Carlo in approximating Black-Scholes
+
+
+
+We can see that whilst our Monte Carlo valuation is incorrect, it is relatively close to the Black-Scholes approximation with adequate simulations conducted.
+
+
+
+```{r}
+steps = c(10,50,100,500,1000,2000,3000,5000,7500,10000)
+n = length(steps)
+
+MC_Prices = rep(0,n);
+for(i in 1:n) {
+  MC_Prices[i] = mc_downout(0,steps[i],100,1,1000,0,0.4,90,100)
+}
+
+BS_Prices = downoutput(100,100,0.4,0,1,90) * rep(1,n)
+
+plot(MC_Prices,main='Convergence',xaxt="n",type="l",col="blue",xlab="Steps",ylab="Price")
+axis(1,at=1:10,labels=steps)
+lines(BS_Prices,col="black")
+```
+
+
+

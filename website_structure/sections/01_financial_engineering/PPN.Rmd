@@ -1,0 +1,140 @@
+---
+title: "**Principal Protected Note**"
+subtitle: "Constructing and calculating the profit and loss on a capital guaranteed product"
+author: "Gary He"
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+# Principal Protected Note
+
+We want to structure a basic capital guaranteed product known as a Principal Protected Note. At maturity, the client is guaranteed to receive their initial investment back if the underlying equity index is below the inception level. If the equity index rises above its initial value, the client will receive their initial investment back, plus a pcercentage of any gains in the equity index. This percentage is the participation rate.
+
+We can construct such a product using a combination of a zero coupon bond and a call option.
+
+## Calculating the Participation Rate
+
+For example, assuming that the initial investment is 100:
+
+$$
+Payoff = 100 + x \frac{100}{S_t} (S_T - S_t)
+$$
+
+$$
+\text{Price of Bond } = B_t = 100e^{-r(T-t)} < 100
+$$
+
+Therefore, using the initial investment we can buy a zero-coupon bond and use the remainder to purchase options.
+
+$$
+x \frac{100}{S_t}(S_T-S_t)1_{S_T>S_t} = \frac{100-100e^{-r(T-t)}}{C_t} (S_T-S_t) 1_{S_T>S_t}
+$$
+Solving for x or the participation rate, we obtain:
+
+$$
+x = \frac{S_t (1-e^{-r(T-t)})}{C_t}
+$$
+
+# Setting up functions to price the derivatives
+
+```{r}
+BSprice<-function(pc, S, k, vol, d, r, t)
+{
+  
+  
+  d1 = (log(S / k) + t * (r - d + (vol ^ 2) / 2)) / (vol * sqrt(t))
+  d2 = d1 - vol * sqrt(t)
+  
+  BSprice = pc * exp(-d * t) * S * 
+    pnorm(pc * d1) - pc * k * exp(-r * t) * pnorm(pc * d2)
+  return(BSprice)
+}
+
+```
+
+We also lay out some base parameters for the product. The yield curve is flat over 4 years, ATM volatility is 12% on a call option for the underlying equity index. We produce a product that pays out principal plus a factor A multiplied by the difference between the index price in 4 years and a fixed level, K:
+
+```{r}
+Nominal = 100;
+S = 40;
+T = 4;
+r = .05;
+Vol = .12;
+K = 45
+div <- 0 
+x <- c(0)  #the participation rate which we will calculate
+
+```
+
+# Calculating the payoff of the note compared to investing in the stock, call and bond
+
+We produce a simple profit/loss chart for the PPN, stock, call and bond depending on the terminal equity index price in 4 years:
+
+```{r}
+Bond = Nominal * exp(- r * T); # the price of a zero-coupon bond today, required to pay back the client's principal
+Derivatives = Nominal - Bond; # the remainder left after purchasing bonds, which can be spent on options
+Call = BSprice(1,S,K,Vol,div,r,T); # the price of a call
+A = Derivatives / Call; # Maximal amount of calls that can be purchased
+x <- S*(1-exp(- r * T))/BSprice(1,S,S,Vol,div,r,T); # the participation rate if K=S
+
+Stock = c(0:75); # Range of possible stock prices for graphical analysis
+Stock_GL = (Stock / S - 1) * 100; # Gains and Losses if all 100 invested in the stock
+Call_payoff<-c()
+Call_payoff = pmax(Stock - K, 0);
+Call_payoff_GL = (Call_payoff / Call - 1) * 100;  # Gains and Losses if all 100 invested in the call
+
+PPN<-c()
+PPN = Nominal + A * pmax(Stock - K, 0);
+PPN_GL = (PPN / Nominal - 1) * 100;  # Gains and Losses if all 100 invested in the structured note
+
+Zero_Coupon_GL = (exp(r * T) - 1) * 100 * rep(1,76);  # Gains and Losses if all 100 invested in the ZCB
+Zero_Coupon = Nominal * (1 + Zero_Coupon_GL / 100);   # Final value if all 100 invested in the ZCB
+
+
+plot(PPN_GL,main='PPN vs Bond, Call and Stock',xaxt="n",type="l",ylab='Percentage (%)',xlab='Stock Price',
+     ylim=c(-100,500),xlim=c(30,75))
+axis(1,at=1:76,labels=Stock)
+lines(Zero_Coupon_GL,col="blue")
+lines(Call_payoff_GL,col="purple")
+lines(Stock_GL,col="red")
+legend("topleft",c('PPN','Bond','Call','Stock'),col=c("black","blue", "purple","red"),lty=c(1,1,1,1),cex=0.8)
+```
+
+
+
+## Calculating profit for a specified factor A
+
+```{r}
+Profit <- c();
+strikes <- rep(30:60);
+A=3;
+Profit <- Nominal-Bond-A*BSprice(1,S,strikes,Vol,div,r,T)
+
+plot(Profit,main='PnL for A=3',xaxt="n",type="l",ylab='£',xlab='Strikes K',
+     ylim=c(-40,20),xlim=c(1,30))
+axis(1,at=1:31,labels=strikes)
+lines(rep(0,30),col="blue")
+legend("topleft",c('Profit','Breakeven'),
+       col=c("black","blue"),lty=c(1,1),cex=0.8)
+```
+
+
+
+## Finding the breakeven point using unit roots
+
+```{r}
+profitK = function(K) {
+  prof = Nominal-Bond-A*BSprice(1,S,K,Vol,0,r,T)
+  return(prof)
+}
+
+K = uniroot(profitK,lower=30,upper=60)
+K$root
+```
+

@@ -1,0 +1,297 @@
+---
+title: "AR1 Examples"
+author: "Shirley He"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+# Notebook Contents   
+  - [Introduction to an Autoregressive Model](#ar1)   
+  - [Stationary AR(1)](#stationary_ar1)   
+  - [Nonstationary AR(1)](#nonstationary_ar1)   
+  - [Unconditional Distribution AR(1)](#uncond_ar1)    
+  - [Conditional Distribution AR(1)](#cond_ar1)
+  - [ACF and PACF](#acf_pacf)
+  - [Persistent AR(1)](persistent_ar1)    
+  - [ACF Persistent AR(1)](#acf_persistent_ar1)      
+  - [Weakly Persistent AR(1)](#weakly_persistent_ar1)    
+  - [ACF Weakly Persistent AR(1)](#acf_weakly_persistent_ar1)    
+  - [Neg Phi AR(1)](#neg_phi)   
+  - [ACF Weakly Persistent AR(1)](#acf_weakly_persisntent)    
+   
+
+  
+
+
+# Introduction to AR(1){#ar1}
+An $AR(p)$ model is an autoregressive model where a number of lagged values of $Y_t$ are used as the predictor variables.  
+The value $p$ is called the order.      
+
+
+One of the most basic linear time series models is the autoregressive model of order 1.    
+
+This is $AR(1)$.   
+$$Y_t = \phi_0 + \phi_1 Y_{t-1} + \epsilon_t$$ 
+
+$$\epsilon_t \sim WN(0, \sigma^2_\epsilon)$$     
+where $\epsilon_t$ is a white noise process with mean 0 and variance $\sigma^2 _\epsilon$    
+
+If $\phi_1$ = 1 then this is a stationary walk        
+If $\phi_1$ > 1 then we have a non-stationary process    
+
+The outcome variable $Y_t$ in a first order AR process at $t$ is related only to the value of the variable at one lag (the value at $t-1$).     
+If we had a $AR(2)$ model, the outcome would be related to two periods apart and so on.
+
+
+
+# Stationary AR(1){#stationary_ar1}
+A simple example of a stationary process is a Gaussian white noise process, where each observation $x_t$ is iid $\mathcal{N}(0,\sigma^2)$. 
+
+Here we will simulate Gaussian white noise and plot it.   
+(Most stationary time series plots will look similar to this.)
+```{r}
+#clean up and loac libraries
+rm( list=ls() )
+library(ggplot2)
+
+T  <- 500
+white_noise_df <- data.frame(T, rnorm(T,0,1))
+
+colnames(white_noise_df) <- c("T", "white_noise")
+
+ggplot(data = white_noise_df, aes(x=seq(T), y=white_noise)) + 
+  geom_line(color="coral2") +
+  ggtitle("White Noise Process") +
+  xlab("Time") +
+  ylab("Xt")
+
+```
+
+
+The autoregressive model of order 1 is $Y_t = \phi_0 + \phi_1 Y_{t-1} + \epsilon_t$  
+The white noise is gaussian  
+$\phi_1 <= 1$
+```{r}
+
+phi0  <- 0.5
+phi1  <- 0.8
+sd_of_eps  <- sqrt(4)
+y    <- rep(0,T)
+
+#gaussian white noise
+eps  <- rnorm(T,0,sd_of_eps)
+
+#for every day after day 1, we compute the autoregressive model of order 1.
+y[1] <- 1
+for( t in 2:T ){
+    y[t] <- phi0 + phi1*y[t-1] + eps[t]
+}
+
+y_df <- data.frame(y)
+ggplot(data=y_df, aes(x=seq(T), y=y)) + 
+  geom_line(color = "coral2") + 
+  ggtitle("AR(1) with Gaussian White Noise") + 
+  xlab("Time") +
+  ylab("y")
+
+```
+
+# Nonstationary AR(1){#nonstationary_ar1}
+The white noise is still gaussian  
+But $\phi_1 > 1$ so we have a non-stationary process. 
+
+```{r}
+phi0 <- 0.0
+phi1 <- 1.01
+sd_of_eps <- sqrt(4)
+y    <- rep(0,T)
+
+#gaussian white noise
+eps  <- rnorm(T,0,sd_of_eps)
+
+#for every day after day 1, we compute the autoregressive model of order 1.
+y[1] <- 1
+for( t in 2:T ){
+    y[t] <- phi0 + phi1*y[t-1] + eps[t]
+}
+
+y_df <- data.frame(y)
+ggplot(data = y_df, aes(x=seq(T), y=y)) + 
+  geom_line(color = "coral2") + 
+  ggtitle("AR(1) with a Non-Stationary Process") +
+  xlab("Time") +
+  ylab("y")
+
+```
+
+
+# Unconditional Distribution AR(1){#uncond_ar1}
+**Kernel Density Estimation (KDE)** is a non-parametric way to estimate the probability density function that generated a dataset. 
+
+## Histogram
+Before we use KDE, we can plot a histogram to have a first look at the underlying frequency distribution.
+
+```{r}
+
+ggplot(data = y_df, aes(x=y)) + 
+  geom_histogram(binwidth = 50, color="black", fill="coral2") +
+  ggtitle("Histogram of y") +
+  ylab("Frequency")
+
+```
+
+
+## Kernel Density Estimator
+```{r}
+#R function "density" computes kernel density estimates
+kernel <- density(y)
+kernel
+```
+
+From the KDE, we can estimate the mean and sigma and then use those to make a plot of the estimated density.
+
+We will need the unconditional mean and variance of the AR(1) process.  
+$$Y_t = \phi_0 + \phi_1 Y_{t-1} + \epsilon_t , \epsilon_t \sim WN(0, \sigma^2_\epsilon)$$ 
+
+$$\epsilon_t \sim WN(0, \sigma^2_\epsilon)$$ 
+
+The expecation of $Y_t$ is: $$E(Y_t) = \frac{\phi_0}{1-\phi_1}$$
+
+
+The variance of $Y_t$ is: $$Var(Y_t) = \frac{\sigma^2_\epsilon}{1 - \phi_1^2}$$
+```{r}
+mu    <- phi0/(1-phi1)
+sigma <- sd_of_eps/sqrt(1-phi1**2)
+
+plot( kernel , main='KDE' , yaxs='i')
+polygon( kernel , col="coral2" , border='red2' )
+lines( seq(-10,20,0.1) , dnorm( seq(-10,20,0.1) , mu , sigma ) , col='coral2' ,lwd=4)
+
+
+#ggplot is alternative way to plot - KDE is built in to geom_density()
+ggplot(data = y_df, mapping = aes(x=y)) + geom_density(color="coral2", fill="coral2") + 
+  ggtitle("KDE") 
+
+```
+
+
+
+# Conditional Distribution AR(1){#cond_ar1}
+
+Considering that we have an AR(1) process, we can plot the conditional distribution of $X_t$ given the information set $\Phi_{t-1}$. 
+
+The conditional distribution of $X_t$ is $$X_{t} \mid \Phi_{t-1} \sim D\left(\phi_{0}+\phi_{1} X_{t-1}, \sigma^{2}\right)$$
+```{r}
+mu    <- phi0/(1-phi1)
+sigma <- sd_of_eps/sqrt(1-phi1**2)
+
+df <- data.frame(seq(-10, 20, 0.1), dnorm(seq(-10,20,0.1) , phi0+phi1*15 , sd_of_eps))
+colnames(df) <- c("x", "y")
+
+ggplot(data = df, aes(x=x, y=y)) + 
+  geom_line(color="coral2") +
+  ggtitle("Conditional Distribution of AR(1)")
+
+```
+
+
+# ACF and PACF{#acf_pacf}
+**ACF** is an autocorrelation function that gives the values of autocorrelation of a series with it's lagged values.   
+It shows us how much the present value of the series is related to past values. 
+
+**PACF** is a partial autocorrelation function that gives the values of autocorrelation of a series with it's lagged values, after we have removed the effects that were already explained in earlier lags. 
+
+We will plot the ACF and PACF of the AR(1) below
+
+## ACF AR(1)
+```{r}
+acf(y)
+
+```
+
+# PACF AR(1){#pacf_ar1}
+```{r}
+pacf(y)
+```
+
+
+
+
+
+# Persistent AR(1){persistent_ar1}
+```{r}
+phi0 <- 0.0
+phi1 <- 0.97
+sige <- sqrt(4)
+
+y    <- rep(0,T)
+eps  <- rnorm(T,0,sige);
+
+y[1] <- 1;
+for( t in 2:T ){
+  y[t] <- phi0 + phi1*y[t-1] + eps[t]
+}
+
+plot( y , col='darkorange2' , t='l' , lwd=2 , tck = 0.02 )
+```
+
+# ACF Persistent AR(1){#acf_persistent_ar1}
+```{r}
+acf( y , ylim=c(-0.2,1) , lwd=5 , xlim=c(0,25) , col='darkorange2' , tck=0.02)
+lines( 0:25 , phi1**(0:25) , t="h" , lwd=3 , col='blue2' )
+legend('topright',c('Sample','Population'),col=c('darkorange2','blue2'),lwd=3)
+```
+
+# Weakly Persistent AR(1){#weakly_persistent_ar1}
+```{r}
+phi0 <- 0.0
+phi1 <- 0.20
+sige <- sqrt(4)
+
+y    <- rep(0,T)
+eps  <- rnorm(T,0,sige);
+
+y[1] <- 1;
+for( t in 2:T ){
+  y[t] <- phi0 + phi1*y[t-1] + eps[t]
+}
+
+plot( y , col='darkorange2' , t='l' , lwd=2 , tck = 0.02 )
+```
+
+# ACF Weakly Persistent AR(1){#acf_weakly_persistent_ar1}
+```{r}
+acf( y , ylim=c(-0.2,1) , lwd=5 , xlim=c(0,25) , col='darkorange2' , tck=0.02)
+lines( 0:25 , phi1**(0:25) , t="h" , lwd=3 , col='blue2' )
+legend('topright',c('Sample','Population'),col=c('darkorange2','blue2'),lwd=3)
+```
+
+# Neg Phi AR(1){#neg_phi}
+```{r}
+phi0 <- 0.0
+phi1 <- -0.8
+sige <- sqrt(4)
+
+y    <- rep(0,T)
+eps  <- rnorm(T,0,sige);
+
+y[1] <- 1;
+for( t in 2:T ){
+  y[t] <- phi0 + phi1*y[t-1] + eps[t]
+}
+
+plot( y , col='darkorange2' , t='l' , lwd=2 , tck = 0.02 )
+```
+
+# ACF Weakly Persistent AR(1){#acf_weakly_persisntent}
+```{r}
+acf( y , ylim=c(-0.2,1) , lwd=5 , xlim=c(0,25) , col='darkorange2' , tck=0.02)
+lines( 0:25 , phi1**(0:25) , t="h" , lwd=3 , col='blue2' )
+legend('topright',c('Sample','Population'),col=c('darkorange2','blue2'),lwd=3)
+```

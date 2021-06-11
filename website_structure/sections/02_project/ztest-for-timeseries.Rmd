@@ -1,0 +1,145 @@
+---
+title: "The Rejection Region when Data is Autocorrelated"
+subtitle: "The Z-test for Time Series"
+author: "Shirley He"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+
+# Notebook Contents 
+ - [Setup Montecarlo](#montecarlo)
+ - [Monte Carlo 1 - iid Data](#iid_data)
+ - [Monte Carlo 2 - Dependent data](#dependent_data)
+ 
+ 
+# Setup Montecarlo{#montecarlo} 
+```{r}
+rm(list=ls())
+set.seed(42)
+S <- 10000
+T <- 500
+crit <- qnorm(0.95)
+w   <- c(0.4,0.3,0.2)
+```
+
+## Carry one replication of the exeperiment
+```{r}
+eps <- rnorm(T)
+y   <- rep(0,T)
+
+for( t in 4:T ){
+  y[t] <- eps[t] + w[1]*eps[t-1] + w[2]*eps[t-2] + w[3]*eps[t-3]
+}
+
+m      <- mean(y)
+s2     <- var(y)
+se.iid <- sqrt(s2/T)
+
+gamma0 <- var(y)
+gamma1 <- cov(y[2:T],y[1:(T-1)])
+gamma2 <- cov(y[3:T],y[1:(T-2)])
+gamma3 <- cov(y[4:T],y[1:(T-3)])
+s2.lr  <- gamma0 + 2*(gamma1 + gamma2 + gamma3)
+se.ts  <- sqrt(s2.lr/T)
+
+t1 <- m/se.iid
+t2 <- m/se.ts
+
+par( mar=c(2,2,0.75,0.75) , yaxs='i' )
+plot( seq(-4,4,0.1) , dnorm(seq(-4,4,0.1)) , col='darkblue' , lwd=3 , t='l',ylim=c(0,0.5),xlim=c(-8,8) )
+polygon( c(crit,crit,10,10) , c(0,0.5,0.5,0) ,col='coral2' , density=10)
+abline( v=qnorm(0.95) , col='firebrick3' , lwd=4)
+text(crit,0.25,sprintf('Nominal 5%% Rejection Region'),col='black',pos=4)
+box()
+```
+
+# Monte Carlo - 1 iid Data{#iid_data}
+
+Check out the distibution of the test statistic for iid data when the data has serial dependence
+```{r}
+z.score <- rep(0,S)
+
+for( s in 1:S ){
+	eps <- rnorm(T)
+	y   <- rep(0,T)
+
+	for( t in 4:T ){
+		y[t] <- eps[t] + w[1]*eps[t-1] + w[2]*eps[t-2] + w[3]*eps[t-3]
+	}
+  
+  m  <- mean(y)
+  s2 <- var(y)
+  se <- sqrt(s2/T)
+  
+  z.score[s] <- m/se
+}
+
+```
+
+`z.size` is around 16%
+This means that the rejection region is around 16% instead of 5%  
+```{r}
+z.size <- mean( z.score > crit ) 
+```
+
+
+Plot the rejection region over the histogram
+```{r}
+par( mar=c(2,2,0.75,0.75) , yaxs='i' )
+hist(z.score,50,freq=FALSE,ylim=c(0,0.5),xlim=c(-8,8),col='azure2',main='')
+lines( seq(-4,4,0.1) , dnorm(seq(-4,4,0.1)) , col='darkblue' , lwd=3 , t='l',ylim=c(0,0.5),xlim=c(-8,8) )
+polygon( c(crit,crit,10,10) , c(0,0.5,0.5,0) ,col='coral2' , density=10)
+abline( v=qnorm(0.95) , col='firebrick3' , lwd=4)
+text(qnorm(0.95),0.25,sprintf('Nominal 5%% Rejection Region:\nSize %2.2f%%',z.size*100),col='black',pos=4)
+box()
+
+```
+
+# Monte Carlo 2 - Dependent data{#dependent_data}
+Check out the distibution of the proposed test statistic for dependent data when the data has serial dependence
+```{r}
+z.score <- rep(0,S)
+
+for( s in 1:S ){
+	eps <- rnorm(T)
+	y   <- rep(0,T)
+
+	for( t in 4:T ){
+		y[t] <- eps[t] + w[1]*eps[t-1] + w[2]*eps[t-2] + w[3]*eps[t-3]
+	}
+  
+  m  <- mean(y)
+  gamma0 <- var(y)
+  gamma1 <- cov(y[2:T],y[1:(T-1)])
+  gamma2 <- cov(y[3:T],y[1:(T-2)])
+  gamma3 <- cov(y[4:T],y[1:(T-3)])
+  s2.lr  <- gamma0 + 2*(gamma1 + gamma2 + gamma3)
+
+  se <- sqrt(s2.lr/T)
+  
+  z.score[s] <- m/se
+
+}
+```
+
+
+`z.size` is around 5%  
+This is much closer to the nominal rejection region
+```{r}
+z.size <- mean( z.score > crit )
+
+par( mar=c(2,2,0.75,0.75) , yaxs='i' )
+hist(z.score,50,freq=FALSE,ylim=c(0,0.5),xlim=c(-8,8),col='azure2',main='')
+lines( seq(-4,4,0.1) , dnorm(seq(-4,4,0.1)) , col='darkblue' , lwd=3 , t='l',ylim=c(0,0.5),xlim=c(-8,8) )
+polygon( c(crit,crit,10,10) , c(0,0.5,0.5,0) ,col='coral2' , density=10)
+abline( v=qnorm(0.95) , col='firebrick3' , lwd=4)
+text(qnorm(0.95),0.25,sprintf('Nominal 5%% Rejection Region:\nSize %2.2f%%',z.size*100),col='black',pos=4)
+box()
+```
